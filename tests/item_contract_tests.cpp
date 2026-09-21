@@ -27,6 +27,15 @@ static_assert(D2RL::Items::TransactionRequiredSize == D2RL::Items::TransactionSi
 static_assert(D2RL::Items::TransactionResultRequiredSize == D2RL::Items::TransactionResultSize);
 static_assert(D2RL::InventoryServiceRequiredSize == 112);
 static_assert(D2RL::ItemServiceRequiredSize == 64);
+static_assert(D2RL::ItemServiceAffixAugmentRequiredSize == 72);
+static_assert(D2RL::Items::AffixAugmentRequestSize == 64);
+static_assert(D2RL::Items::AffixAugmentResultSize == 40);
+static_assert(static_cast<uint32_t>(D2RL::Items::AffixSelection::RandomEligible) == 0);
+static_assert(static_cast<uint32_t>(D2RL::Items::AffixSelection::ExplicitId) == 1);
+static_assert(static_cast<uint32_t>(D2RL::Items::AffixKind::Either) == 0);
+static_assert(static_cast<uint32_t>(D2RL::Items::AffixKind::Prefix) == 1);
+static_assert(static_cast<uint32_t>(D2RL::Items::AffixKind::Suffix) == 2);
+static_assert(static_cast<uint32_t>(D2RL::Items::AffixAugmentFailure::RollbackFailed) == 11);
 static_assert(D2RL::ItemInteractionServiceRequiredSize == 24);
 static_assert(D2RL::ItemInteractions::ItemInteractionEventRequiredSize == 56);
 static_assert(D2RL::ItemInteractions::ItemInteractionListenerRequiredSize == 32);

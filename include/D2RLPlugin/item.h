@@ -364,6 +364,94 @@ using ExecuteExistingItemTransactionFn = Result(__cdecl*)(const PluginContext* c
 // does not validate or publish changes made through it.
 using EditNativeItemFn                 = Result(__cdecl*)(const PluginContext* context, ItemHandle item, NativeItemEditCallback callback, void* userData) noexcept;
 
+// Additive ItemService V1 extension. The original 64-byte service prefix is
+// unchanged. A host publishes this function only after implementing it.
+enum class AffixSelection : uint32_t {
+	RandomEligible = 0, // affixId must be zero
+	ExplicitId = 1,     // affixId must be nonzero
+};
+
+enum class AffixKind : uint32_t {
+	Either = 0, // only allowed for RandomEligible
+	Prefix = 1,
+	Suffix = 2,
+};
+
+// These one-based native affix IDs use the same namespace as ItemInfo::prefixIds
+// and ItemInfo::suffixIds, not zero-based MagicPrefix/MagicSuffix table rows.
+enum class AffixAugmentFailure : uint32_t {
+	None = 0,
+	InvalidRequest = 1,
+	InvalidItem = 2,
+	AtCapacity = 3,
+	SideAtCapacity = 4,
+	UnknownAffix = 5,
+	IneligibleAffix = 6,
+	NoEligibleAffix = 7,
+	NativeApplyFailed = 8,
+	InvariantMismatch = 9,
+	PaymentFailed = 10,
+	RollbackFailed = 11,
+};
+
+// Add exactly one eligible native affix IN PLACE to an existing item, without
+// regenerating pre-existing affixes, rolls, name, seeds, or item identity.
+// V1 is for Rare items; later quality support must be explicitly specified.
+// In random mode affixId is zero; in explicit mode kind is Prefix or Suffix.
+// A maximum of zero means the native limit (3 prefixes, 3 suffixes, 6 total).
+// All maximums must be within these limits. flags must be zero.
+// The optional payment is (InvalidItemHandle, 0) or an independently owned
+// item/stack handle and positive quantity. Payment and augmentation are atomic:
+// any failure must leave both source and currency unmodified. If safe native
+// rollback cannot be established, return RollbackFailed and quarantine the
+// mutation session instead of claiming a normal recoverable failure.
+// This mutation requires the authoritative game thread and local/TCP-IP host.
+struct AffixAugmentRequest {
+	uint32_t       structSize;
+	uint32_t       flags;
+	PlayerHandle   player;
+	ItemHandle     item;
+	ItemHandle     paymentItem;
+	uint32_t       paymentQuantity;
+	AffixSelection selection;
+	AffixKind      kind;
+	uint32_t       affixId;
+	uint32_t       maxPrefixes;
+	uint32_t       maxSuffixes;
+	uint32_t       maxAffixes;
+};
+
+// On Success: appliedAffixId is the one-based native ID, appliedSlot is 0..2,
+// affixesAfter == affixesBefore + 1, paymentConsumed is the debited quantity.
+// On ordinary failure paymentConsumed is zero and item/payment are unchanged.
+struct AffixAugmentResult {
+	uint32_t           structSize;
+	uint32_t           flags;
+	AffixAugmentFailure failure;
+	AffixKind          appliedKind;
+	uint32_t           appliedAffixId;
+	uint32_t           appliedSlot;
+	uint32_t           affixesBefore;
+	uint32_t           affixesAfter;
+	uint32_t           paymentConsumed;
+	uint32_t           reserved;
+};
+
+inline constexpr uint32_t AffixAugmentRequestSize         = static_cast<uint32_t>(sizeof(AffixAugmentRequest));
+inline constexpr uint32_t AffixAugmentRequestRequiredSize = AffixAugmentRequestSize;
+inline constexpr uint32_t AffixAugmentResultSize          = static_cast<uint32_t>(sizeof(AffixAugmentResult));
+inline constexpr uint32_t AffixAugmentResultRequiredSize  = AffixAugmentResultSize;
+
+using AugmentItemAffixFn = Result(__cdecl*)(const PluginContext* context, const AffixAugmentRequest* request, AffixAugmentResult* result) noexcept;
+
+static_assert(sizeof(AffixSelection) == 4);
+static_assert(sizeof(AffixKind) == 4);
+static_assert(sizeof(AffixAugmentFailure) == 4);
+static_assert(std::is_standard_layout_v<AffixAugmentRequest> && std::is_trivially_copyable_v<AffixAugmentRequest>);
+static_assert(std::is_standard_layout_v<AffixAugmentResult> && std::is_trivially_copyable_v<AffixAugmentResult>);
+static_assert(sizeof(AffixAugmentRequest) == 64);
+static_assert(sizeof(AffixAugmentResult) == 40);
+
 static_assert(sizeof(Result) == sizeof(uint32_t));
 static_assert(sizeof(Quality) == sizeof(uint32_t));
 static_assert(sizeof(ItemContainer) == sizeof(uint32_t));
@@ -427,10 +515,12 @@ struct ItemService {
 	Items::ExecuteTransactionFn             executeTransaction;
 	Items::EditNativeItemFn                 editNativeItem;
 	Items::ExecuteExistingItemTransactionFn executeExistingItemTransaction;
+	Items::AugmentItemAffixFn                 augmentItemAffix;
 };
 
 inline constexpr uint32_t ItemServiceSize         = static_cast<uint32_t>(sizeof(ItemService));
-inline constexpr uint32_t ItemServiceRequiredSize = ItemServiceSize;
+inline constexpr uint32_t ItemServiceRequiredSize          = static_cast<uint32_t>(offsetof(ItemService, augmentItemAffix));
+inline constexpr uint32_t ItemServiceAffixAugmentRequiredSize = ItemServiceSize;
 
 inline auto HasItemServiceField(const ItemService* service, uint32_t fieldEndOffset) noexcept -> bool {
 	return service != nullptr && service->serviceVersion == ItemService::AbiVersion && service->serviceSize >= fieldEndOffset;
@@ -446,6 +536,8 @@ static_assert(offsetof(ItemService, executeTransaction) == 40);
 static_assert(offsetof(ItemService, editNativeItem) == 48);
 static_assert(offsetof(ItemService, executeExistingItemTransaction) == 56);
 static_assert(ItemServiceRequiredSize == 64);
-static_assert(sizeof(ItemService) == 64);
+static_assert(offsetof(ItemService, augmentItemAffix) == 64);
+static_assert(ItemServiceAffixAugmentRequiredSize == 72);
+static_assert(sizeof(ItemService) == 72);
 
 }
